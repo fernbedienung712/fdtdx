@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fdtdx.config import SimulationConfig
@@ -529,6 +530,51 @@ class TestCalculateSparamMultiSource:
         for (det_name, _), s_param in result.items():
             assert s_param.shape == (1,)
             assert jnp.all(jnp.isfinite(jnp.abs(s_param))), f"S-param for {det_name!r} is not finite"
+
+
+# Long enough for the pulse to reach the detectors (the energy stop of calculate_sparam would end the 5 fs run above
+# after its minimum of a few steps).
+_ISO_MAX_TIME = 300e-15
+
+
+def _detector_states_driven_from_p1(port_names: tuple[str, ...]) -> dict:
+    """Detector states of calculate_sparam driven from P1, in the multi-source scene with only ``port_names``."""
+    ports = [
+        PortSpec(center=(x, _MC_CY, _MC_CZ), axis=0, direction="+", width=_MC_PORT_W, height=_MC_PORT_H, name=n)
+        for x, n in zip(_MC_XS, ["P1", "P2", "P3", "P4"], strict=True)
+        if n in port_names
+    ]
+    objs, arrays, config = setup_sparams_simulation(
+        polygons=[],
+        input_ports=[p for p in ports if p.name in ("P1", "P2")],
+        output_ports=[p for p in ports if p.name in ("P3", "P4")],
+        wavelength=_WAVELENGTH,
+        resolution=_MC_RESOLUTION,
+        max_time=_ISO_MAX_TIME,
+        domain_size=_MC_DOMAIN,
+        pml_layers=_MC_PML,
+        key=jax.random.PRNGKey(0),
+    )
+    _, states = calculate_sparam(objs, arrays, config, input_port_name="P1", show_progress=False)
+    return states
+
+
+class TestCalculateSparamDrivesOnlyItsPort:
+    def test_other_source_injects_nothing(self):
+        """With P2 switched off by calculate_sparam, the detectors read what they read without P2 in the scene."""
+        states = _detector_states_driven_from_p1(("P1", "P2", "P3", "P4"))
+        without_p2 = _detector_states_driven_from_p1(("P1", "P3", "P4"))
+        for name in ("P1_input_normalization", "P3", "P4"):
+            for field, expected in without_p2[name].items():
+                expected = np.asarray(expected)
+                assert np.any(expected != 0), f"{name}[{field!r}] recorded nothing"
+                np.testing.assert_allclose(
+                    np.asarray(states[name][field]),
+                    expected,
+                    rtol=1e-5,
+                    atol=1e-6 * float(np.max(np.abs(expected))),
+                    err_msg=f"{name}[{field!r}]",
+                )
 
 
 # ---------------------------------------------------------------------------
