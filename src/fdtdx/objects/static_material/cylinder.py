@@ -34,10 +34,12 @@ class Cylinder(StaticMultiMaterialObject):
         real_shape = list(self.partial_real_shape)
         grid_shape = list(self.partial_grid_shape)
         for ax in (self.horizontal_axis, self.vertical_axis):
-            if real_shape[ax] is not None:
+            # A value equal to the diameter is accepted: an exported cylinder carries the derived
+            # diameter in partial_real_shape and must be importable again.
+            if real_shape[ax] is not None and real_shape[ax] != diameter:
                 raise Exception(
                     f"Cylinder {self.name}: partial_real_shape for axis {ax} is derived from the radius "
-                    f"({diameter:.3e} m). Do not specify it explicitly."
+                    f"({diameter:.3e} m). Leave it unset (got {real_shape[ax]:.3e} m)."
                 )
             if grid_shape[ax] is not None:
                 raise Exception(

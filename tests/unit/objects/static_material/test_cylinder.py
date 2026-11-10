@@ -14,6 +14,7 @@ import jax.numpy as jnp
 import pytest
 
 from fdtdx.config import SimulationConfig
+from fdtdx.conversion.json import export_json_str, import_from_json
 from fdtdx.core.grid import RectilinearGrid, UniformGrid
 from fdtdx.materials import Material
 from fdtdx.objects.static_material.cylinder import Cylinder
@@ -255,3 +256,48 @@ class TestAutoRealShape:
         for axis in range(3):
             cyl = _make_cylinder(two_materials, axis=axis)
             assert cyl.partial_real_shape[axis] is None
+
+    def test_cross_section_equal_to_diameter_is_accepted(self, two_materials):
+        cyl = Cylinder(
+            materials=two_materials,
+            radius=150e-9,
+            axis=2,
+            material_name="si",
+            partial_real_shape=(300e-9, 300e-9, 1e-6),
+        )
+        assert cyl.partial_real_shape == (300e-9, 300e-9, 1e-6)
+
+    @pytest.mark.parametrize("partial_real_shape", [(400e-9, None, None), (None, 200e-9, None)])
+    def test_cross_section_other_than_diameter_is_refused(self, two_materials, partial_real_shape):
+        with pytest.raises(Exception, match="derived from the radius"):
+            Cylinder(
+                materials=two_materials,
+                radius=150e-9,
+                axis=2,
+                material_name="si",
+                partial_real_shape=partial_real_shape,
+            )
+
+
+# ---------------------------------------------------------------------------
+# JSON round trip
+# ---------------------------------------------------------------------------
+
+
+class TestJsonRoundTrip:
+    @pytest.mark.parametrize("axis", [0, 1, 2])
+    def test_export_then_import(self, two_materials, axis):
+        cyl = Cylinder(
+            materials=two_materials,
+            radius=150e-9,
+            axis=axis,
+            material_name="si",
+            name="fiber",
+        )
+        restored = import_from_json(export_json_str(cyl))
+        assert isinstance(restored, Cylinder)
+        assert restored.name == "fiber"
+        assert restored.radius == cyl.radius
+        assert restored.axis == cyl.axis
+        assert restored.material_name == cyl.material_name
+        assert restored.partial_real_shape == cyl.partial_real_shape
